@@ -29,11 +29,11 @@ try:
     
     from itertools import chain as ichain
 
-    from gaussgan.definitions import DATASETS_DIR, RUNS_DIR
-    from gaussgan.datasets import get_dataloader, GaussDataset
-    from gaussgan.models import Generator, Discriminator
-    from gaussgan.utils import tlog, save_model, enorm, calc_gradient_penalty, sample_z, sample_zu
-    from gaussgan.plots import plot_train_loss, compare_histograms
+    from vargan.definitions import DATASETS_DIR, RUNS_DIR
+    from vargan.datasets import get_dataloader, GaussDataset
+    from vargan.models import Generator, Discriminator
+    from vargan.utils import tlog, save_model, enorm, calc_gradient_penalty, sample_z, sample_zu
+    from vargan.plots import plot_train_loss, compare_histograms
 except ImportError as e:
     print(e)
     raise ImportError

@@ -12,7 +12,7 @@ try:
     
     from itertools import chain as ichain
 
-    from gaussgan.utils import tlog, softmax, initialize_weights, calc_gradient_penalty
+    from vargan.utils import tlog, softmax, initialize_weights, calc_gradient_penalty
 except ImportError as e:
     print(e)
     raise ImportError
