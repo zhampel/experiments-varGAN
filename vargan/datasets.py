@@ -1,10 +1,7 @@
 from __future__ import print_function
 
 try:
-    import os
     import numpy as np
-
-    import tables
     
     import torch
     import torchvision
@@ -16,7 +13,6 @@ try:
 except ImportError as e:
     print(e)
     raise ImportError
-
 
 
 class GaussDataset(Dataset):
@@ -49,14 +45,54 @@ class GaussDataset(Dataset):
         return sample
 
 
+DATASET_FN_DICT = {'mnist' : datasets.MNIST,
+                   'fashion-mnist' : datasets.FashionMNIST,
+                   'gauss' : GaussDataset,
+                  }
 
-def get_dataloader(dataset=None, batch_size=64, train_set=True):
+
+dataset_list = DATASET_FN_DICT.keys()
+
+
+def get_dataset(dataset_name='mnist'):
     """
-    Function to provide a DataLoader given a dataset.
+    Convenience function for retrieving
+    allowed datasets.
+    Parameters
+    ----------
+    name : {'mnist', 'fashion-mnist'}
+          Name of dataset
+    Returns
+    -------
+    fn : function
+         PyTorch dataset
     """
+    if dataset_name in DATASET_FN_DICT:
+        fn = DATASET_FN_DICT[dataset_name]
+        return fn
+    else:
+        raise ValueError('Invalid dataset, {}, entered. Must be '
+                         'in {}'.format(dataset_name, DATASET_FN_DICT.keys()))
+
+
+
+def get_dataloader(dataset_name='mnist', data_dir='', batch_size=64, train_set=True):
+
+    dset = get_dataset(dataset_name)
+
+    if (dataset_name == 'gauss'):
+        dataset = dset(file_name=data_dir)
+    else:
+        dataset = dset(data_dir, train=train_set, download=True,
+                       transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           #transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                       ]))
+
     dataloader = torch.utils.data.DataLoader(
-        dataset, 
-        batch_size=batch_size,
-        shuffle=True)
+                                             dataset,
+                                             batch_size=batch_size,
+                                             shuffle=True
+                                            )
 
     return dataloader
