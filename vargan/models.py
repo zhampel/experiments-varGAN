@@ -72,10 +72,11 @@ class Generator(nn.Module):
             print(self.model)
     
     def forward(self, z):
-        #z = z.unsqueeze(2).unsqueeze(3)
+        # Reshape for input
+        #z = z.view(-1)
+        z = z.view(z.size(0), self.latent_dim)
+        #print(z.size())
         x_gen = self.model(z)
-        # Reshape for output
-        #x_gen = x_gen.view(x_gen.size(0), *self.x_dim)
         return x_gen
 
 

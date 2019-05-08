@@ -1,7 +1,10 @@
 from __future__ import print_function
 
 try:
+    import os
     import numpy as np
+    
+    import tables
     
     import torch
     import torchvision

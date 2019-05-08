@@ -37,6 +37,24 @@ def gaussian(x, mu, sig):
     return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.)))
 
 
+# Euclidean norm
+def enorm(data=None, cpu=True):
+    """
+    Provided a batch of vectors,
+    return Euclidean norms
+    """
+    # Magnitude squared of vectors
+    r2 = torch.sum(data * data, dim=1)
+    # Vector magnitudes
+    r = torch.sqrt(r2)
+
+    # Return numpy array as default
+    if cpu:
+        r = r.cpu().data.numpy()
+
+    return r
+
+
 # Save a provided model to file
 def save_model(models=[], out_dir=''):
 

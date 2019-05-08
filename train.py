@@ -4,6 +4,7 @@ try:
     import argparse
     import os
     import numpy as np
+    from itertools import cycle
 
     import matplotlib
     import matplotlib as mpl
@@ -30,7 +31,7 @@ try:
     from itertools import chain as ichain
 
     from vargan.definitions import DATASETS_DIR, RUNS_DIR
-    from vargan.datasets import get_dataloader, GaussDataset
+    from vargan.datasets import get_dataloader, dataset_list
     from vargan.models import Generator, Discriminator
     from vargan.utils import tlog, save_model, enorm, calc_gradient_penalty, sample_z, sample_zu
     from vargan.plots import plot_train_loss, compare_histograms
@@ -41,6 +42,7 @@ except ImportError as e:
 def main():
     global args
     parser = argparse.ArgumentParser(description="GAN training script")
+    parser.add_argument("-s", "--latent_set_name", dest="latent_set_name", default='mnist', choices=dataset_list,  help="Dataset name")
     parser.add_argument("-d", "--dim", dest="dimensions", default=1, type=int, help="Number of dimensions")
     parser.add_argument("-n", "--n_epochs", dest="n_epochs", default=20, type=int, help="Number of epochs")
     parser.add_argument("-b", "--batch_size", dest="batch_size", default=64, type=int, help="Batch size")
@@ -48,6 +50,8 @@ def main():
 
     dim = args.dimensions
     run_name = 'dim%i'%dim
+    
+    latent_set_name = args.latent_set_name
 
     # Make directory structure for this run
     run_dir = os.path.join(RUNS_DIR, run_name)
@@ -61,10 +65,9 @@ def main():
     print('\nResults to be saved in directory %s\n'%(run_dir))
    
     # Access saved dataset
-    data_file_name = '%s/data_dim%i.h5'%(data_dir, dim)
-    dataset = GaussDataset(file_name=data_file_name)
-    print("Getting dataset from %s"%data_file_name)
-    print("Dataset size: ", dataset.__len__())
+    gauss_data_file_name = '%s/data_dim%i.h5'%(data_dir, dim)
+    #dataset = GaussDataset(file_name=gauss_data_file_name)
+    print("Getting dataset from %s"%gauss_data_file_name)
 
     # Training details
     n_epochs = args.n_epochs
@@ -75,27 +78,34 @@ def main():
     decay = 2.5*1e-5
     n_skip_iter = 1 #5
 
-    # Latent space info
-    latent_dim = 30
-    latent_sigma = 0.01
-   
     # Wasserstein metric flag
     #wass_metric = False
     wass_metric = True
     
-    x_shape = dim
-    
     cuda = True if torch.cuda.is_available() else False
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    
+    # Configure data loaders
+    gaussloader = get_dataloader(dataset_name='gauss', data_dir=gauss_data_file_name, batch_size=batch_size)
+    latentsetloader = get_dataloader(dataset_name=latent_set_name, data_dir=data_dir, batch_size=batch_size)
 
-    # Loss function
+    # Dimensionality info for latent datasert
+    idata, ilabels = next(iter(latentsetloader))
+    datum = idata[0]
+    x_shape = datum.view(-1).size()
+    
+    # Dimensionality info for models
+    latent_dim = x_shape[0] 
+    gauss_dim = dim
+   
+    # Loss functions
     bce_loss = torch.nn.BCELoss()
     xe_loss = torch.nn.CrossEntropyLoss()
     mse_loss = torch.nn.MSELoss()
     
     # Initialize generator and discriminator
-    generator = Generator(latent_dim, x_shape)
-    discriminator = Discriminator(dim=dim, wass_metric=wass_metric)
+    generator = Generator(latent_dim=latent_dim, x_dim=gauss_dim)
+    discriminator = Discriminator(dim=gauss_dim, wass_metric=wass_metric)
     
     if cuda:
         generator.cuda()
@@ -106,15 +116,14 @@ def main():
         
     Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
     
-    # Configure training data loader
-    dataloader = get_dataloader(dataset=dataset, batch_size=batch_size)
-
-    # Test dataset
-    n_test_samples = 1000
-    test_data = sample_z(samples=n_test_samples, dims=dim, mu=0.0, sigma=1.0)
+    ## Test dataset
+    # Set number of examples for cycle calcs
+    n_samp = 5000 
+    test_data = sample_z(samples=n_samp, dims=dim, mu=0.0, sigma=1.0)
     r_test = enorm(test_data)
+    testlatentsetloader = get_dataloader(dataset_name=latent_set_name, data_dir=data_dir, batch_size=n_samp, train_set=False)
 
-    # Prepare test set component histograms
+    ## Prepare test set component histograms
     test_hist_list = [None] * dim
     xedges = np.arange(-4, 4, 0.5)
     xcents = (xedges[1:]-xedges[:-1])/2 + xedges[0:-1]
@@ -128,7 +137,7 @@ def main():
         test_hist_list[idim] = xhist
 
     # Theoretical dataset
-    chi2_rng = np.random.chisquare(dim, n_test_samples)
+    chi2_rng = np.random.chisquare(dim, n_samp)
     chi2_sqrt = np.sqrt(chi2_rng)
 
     # K-S Test
@@ -136,14 +145,15 @@ def main():
     print("Comparing theoretical chi2 dist (sqrt) to sampled distribution:")
     print("P-Value: %.04f\tDist-Value: %.04f"%(dval, pval))
 
-    # Bin distributions
+    # Euclidean norm bins
     redges = np.linspace(0, 1.2*int(np.max(r_test)), 20)
     rcents = (redges[1:]-redges[:-1])/2 + redges[0:-1]
     test_hist, _ = np.histogram(r_test, bins=redges)
     chi_hist, _ = np.histogram(chi2_sqrt, bins=redges)
-    test_hist = test_hist / float(n_test_samples)
-    chi_hist = chi_hist / float(n_test_samples)
-   
+    test_hist = test_hist / float(n_samp)
+    chi_hist = chi_hist / float(n_samp)
+  
+    # Optimizer instantiations
     optimizer_G = torch.optim.Adam(generator.parameters(), lr=lr, betas=(b1, b2), weight_decay=decay)
     optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=lr, betas=(b1, b2))
     #optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=lr, betas=(b1, b2), weight_decay=decay)
@@ -159,8 +169,12 @@ def main():
     # Training loop 
     print('\nBegin training session with %i epochs...\n'%(n_epochs))
     for epoch in range(n_epochs):
-        for i, samples in enumerate(dataloader):
-           
+        for i, (samples, (latent_data, latent_labels) ) in enumerate(zip(gaussloader, cycle(latentsetloader))):
+
+            # Ensure equal sized batches
+            if (len(samples) != len(latent_data)):
+                continue
+
             # Ensure generator is trainable
             generator.train()
             # Zero gradients for models
@@ -169,6 +183,7 @@ def main():
             
             # Configure input
             real_samples = Variable(samples.type(Tensor))
+            latent_data = Variable(latent_data.type(Tensor))
 
             # -----------------
             #  Train Generator 
@@ -176,12 +191,8 @@ def main():
             
             optimizer_G.zero_grad()
             
-            # Sample random latent variables
-            #z_latent = sample_z(samples=real_samples.size()[0], dims=latent_dim, mu=0.0, sigma=latent_sigma)
-            z_latent = sample_zu(samples=real_samples.size()[0], dims=latent_dim)
-
             # Generate a batch of samples
-            gen_samples = generator(z_latent)
+            gen_samples = generator(latent_data)
             
             # Discriminator output from real and generated samples
             D_gen = discriminator(gen_samples)
@@ -230,17 +241,12 @@ def main():
         # Generator in eval mode
         generator.eval()
 
-        # Set number of examples for cycle calcs
-        n_samp = 1000 
-
-
-        # Generate sample instances
-        z_samp = sample_zu(samples=n_samp, dims=latent_dim)
-        #z_samp = sample_z(samples=n_samp, dims=latent_dim, mu=0.0, sigma=latent_sigma)
+        ## Generate sample instances
+        z_samp, z_samp_labels = next(iter(testlatentsetloader))
+        z_samp = Variable(z_samp.type(Tensor))
         gen_samples_samp = generator(z_samp)
 
-
-        # Compare true/gen distributions for each component
+        ## Compare true/gen distributions for each component
         gen_data_numpy = gen_samples_samp.cpu().data.numpy()
 
         ks_d_list = []
@@ -284,7 +290,7 @@ def main():
         # P-Values
         axp = axd.twinx()
         axp.step(np.arange(0, dim, 1), ks_p_list, c='r')
-        axp.set_ylabel(r'$\mathrm{KS}_{\mathrm{p}}$')
+        axp.set_ylabel(r'$\mathrm{KS}_{\mathrm{p}}$', color='r')
         axp.tick_params('y', colors='r')
         fig.tight_layout()
         fig.savefig(figname)
@@ -315,7 +321,8 @@ def main():
                                                                    n_epochs, 
                                                                    d_loss.item(),
                                                                    g_loss.item(),
-                                                                   pval)
+                                                                   pval
+                                                                   )
               )
         
 
@@ -329,7 +336,6 @@ def main():
                              'weight_decay' : decay,
                              'n_skip_iter' : n_skip_iter,
                              'latent_dim' : latent_dim,
-                             'latent_sigma' : latent_sigma,
                              'wass_metric' : wass_metric,
                              'gen_loss' : ['G', g_l],
                              'disc_loss' : ['D', d_l],
