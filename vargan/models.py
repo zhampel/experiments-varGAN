@@ -80,6 +80,53 @@ class Generator(nn.Module):
         return x_gen
 
 
+class Generator_CNN(nn.Module):
+    """
+    CNN generator model
+    Input is vector X from image space if dimension X_dim
+    Output is vector z from representation space of dimension z_dim
+    """
+    def __init__(self, x_dim, verbose=False):
+        super(Generator_CNN, self).__init__()
+
+        self.name = 'generator_cnn'
+        self.channels = 1
+        #self.latent_dim = latent_dim
+        self.cshape = (128, 5, 5)
+        self.iels = int(np.prod(self.cshape))
+        self.lshape = (self.iels,)
+        self.verbose = verbose
+        
+        self.model = nn.Sequential(
+            # Convolutional layers
+            nn.Conv2d(self.channels, 64, 4, stride=2, bias=True),
+            #nn.BatchNorm1d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, 4, stride=2, bias=True),
+            #nn.BatchNorm1d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            # Flatten
+            Reshape(self.lshape),
+            
+            # Fully connected layers
+            torch.nn.Linear(self.iels, 1024),
+            #nn.BatchNorm1d(1024),
+            nn.LeakyReLU(0.2, inplace=True),
+            torch.nn.Linear(1024, x_dim),
+        )
+
+        initialize_weights(self)
+        
+        if self.verbose:
+            print("Setting up {}...\n".format(self.name))
+            print(self.model)
+
+    def forward(self, z):
+        x_gen = self.model(z)
+        return x_gen
+
+
 class Discriminator(nn.Module):
     """
     Input is tuple (X) of an image vector.

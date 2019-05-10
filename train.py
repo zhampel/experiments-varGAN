@@ -32,8 +32,8 @@ try:
 
     from vargan.definitions import DATASETS_DIR, RUNS_DIR
     from vargan.datasets import get_dataloader, dataset_list
-    from vargan.models import Generator, Discriminator
-    from vargan.utils import tlog, save_model, enorm, calc_gradient_penalty, sample_z, sample_zu
+    from vargan.models import Generator, Generator_CNN, Discriminator
+    from vargan.utils import save_model, enorm, calc_gradient_penalty, sample_z, sample_zu
     from vargan.plots import plot_train_loss, compare_histograms
 except ImportError as e:
     print(e)
@@ -46,10 +46,12 @@ def main():
     parser.add_argument("-d", "--dim", dest="dimensions", default=1, type=int, help="Number of dimensions")
     parser.add_argument("-n", "--n_epochs", dest="n_epochs", default=20, type=int, help="Number of epochs")
     parser.add_argument("-b", "--batch_size", dest="batch_size", default=64, type=int, help="Batch size")
+    parser.add_argument("-g", "-–gpu", dest="gpu", default=0, type=int, help="GPU id to use")
     args = parser.parse_args()
 
     dim = args.dimensions
     run_name = 'dim%i'%dim
+    device_id = args.gpu
     
     latent_set_name = args.latent_set_name
 
@@ -79,11 +81,12 @@ def main():
     n_skip_iter = 1 #5
 
     # Wasserstein metric flag
-    #wass_metric = False
-    wass_metric = True
+    wass_metric = False
+    #wass_metric = True
     
     cuda = True if torch.cuda.is_available() else False
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    torch.cuda.set_device(device_id)
     
     # Configure data loaders
     gaussloader = get_dataloader(dataset_name='gauss', data_dir=gauss_data_file_name, batch_size=batch_size)
@@ -105,6 +108,7 @@ def main():
     
     # Initialize generator and discriminator
     generator = Generator(latent_dim=latent_dim, x_dim=gauss_dim)
+    #generator = Generator_CNN(x_dim=gauss_dim)
     discriminator = Discriminator(dim=gauss_dim, wass_metric=wass_metric)
     
     if cuda:
@@ -169,6 +173,7 @@ def main():
     # Training loop 
     print('\nBegin training session with %i epochs...\n'%(n_epochs))
     for epoch in range(n_epochs):
+        #for i, (samples, (latent_data, latent_labels) ) in enumerate(zip(cycle(gaussloader), latentsetloader)):
         for i, (samples, (latent_data, latent_labels) ) in enumerate(zip(gaussloader, cycle(latentsetloader))):
 
             # Ensure equal sized batches
@@ -207,7 +212,8 @@ def main():
                     g_loss = torch.mean(D_gen)
                 else:
                     # Vanilla GAN loss
-                    g_loss = -torch.mean(tlog(D_gen))
+                    valid = Variable(Tensor(gen_samples.size(0), 1).fill_(1.0), requires_grad=False)
+                    g_loss = bce_loss(D_gen, valid)
     
                 g_loss.backward(retain_graph=True)
                 optimizer_G.step()
@@ -228,7 +234,10 @@ def main():
                 
             else:
                 # Vanilla GAN loss
-                d_loss = -torch.mean(tlog(D_real) - tlog(1 - D_gen))
+                fake = Variable(Tensor(gen_samples.size(0), 1).fill_(0.0), requires_grad=False)
+                real_loss = bce_loss(D_real, valid)
+                fake_loss = bce_loss(D_gen, fake)
+                d_loss = (real_loss + fake_loss) / 2
     
             d_loss.backward()
             optimizer_D.step()
@@ -283,13 +292,13 @@ def main():
         mpl.rc("font", family="serif")
         axd = fig.add_subplot(111)
         # D-Values
-        axd.step(np.arange(0, dim, 1), ks_d_list)
+        axd.step(np.arange(0, dim, 1), ks_d_list, where='mid')
         axd.set_ylabel(r'$\mathrm{KS}_{\mathrm{D}}$')
         axd.set_xlabel(r'Vector Component')
         axd.set_title(r'Results of KS Test for Each Component')
         # P-Values
         axp = axd.twinx()
-        axp.step(np.arange(0, dim, 1), ks_p_list, c='r')
+        axp.step(np.arange(0, dim, 1), ks_p_list, c='r', where='mid')
         axp.set_ylabel(r'$\mathrm{KS}_{\mathrm{p}}$', color='r')
         axp.tick_params('y', colors='r')
         fig.tight_layout()
